@@ -297,9 +297,88 @@ body {
 }());
 		</script>
 
+		<!-- BUG "звук не работает" (Telegram iOS, WebView): физический переключатель звонка
+		     в положении "без звука" глушит Web Audio, а AudioContext, который создаёт Godot,
+		     стартует в состоянии suspended до первого жеста пользователя. Хук ставим ДО
+		     загрузки движка (index.js ниже), чтобы поймать AudioContext(ы) в момент их
+		     создания движком при старте. Вне iOS/Telegram и на десктопе блок не меняет
+		     поведение: resume() на уже запущенном контексте — no-op, беззвучный <audio> с
+		     громкостью ~0.01 никому не мешает. -->
+		<script>
+(function () {
+	'use strict';
+
+	var capturedContexts = [];
+
+	function hookCtor(name) {
+		var Original = window[name];
+		if (typeof Original !== 'function') { return; }
+		try {
+			window[name] = new Proxy(Original, {
+				construct: function (Target, args) {
+					var instance = new Target(...args);
+					capturedContexts.push(instance);
+					return instance;
+				}
+			});
+		} catch (e) { /* нет Proxy (древний браузер) — просто не хукаем */ }
+	}
+
+	hookCtor('AudioContext');
+	hookCtor('webkitAudioContext');
+
+	function resumeAll() {
+		capturedContexts.forEach(function (ctx) {
+			try {
+				if (ctx && ctx.state === 'suspended' && typeof ctx.resume === 'function') {
+					ctx.resume();
+				}
+			} catch (e) {}
+		});
+	}
+
+	// Стандартный iOS-приём "unlock": короткий беззвучный зацикленный <audio> переключает
+	// аудио-сессию Safari/WKWebView в режим воспроизведения, из-за чего Web Audio становится
+	// слышен даже при переключателе "без звука". Сам файл — минимальный валидный WAV (0.1 c
+	// тишины, 8 кГц/8 бит/моно), сгенерирован локально, никуда не грузится по сети.
+	var SILENT_WAV = 'data:audio/wav;base64,UklGRkQDAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YSADAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==';
+
+	var unlockAudio = new Audio(SILENT_WAV);
+	unlockAudio.loop = true;
+	unlockAudio.volume = 0.01;
+	try { unlockAudio.playsInline = true; } catch (e) {}
+	unlockAudio.setAttribute('playsinline', '');
+	unlockAudio.setAttribute('webkit-playsinline', '');
+
+	var unlocked = false;
+	function unlockOnGesture() {
+		if (unlocked) { return; }
+		unlocked = true;
+		try {
+			var p = unlockAudio.play();
+			if (p && typeof p.catch === 'function') { p.catch(function () {}); }
+		} catch (e) {}
+		resumeAll();
+	}
+
+	['touchstart', 'touchend', 'pointerdown', 'click', 'keydown'].forEach(function (type) {
+		window.addEventListener(type, unlockOnGesture, { capture: true, passive: true, once: true });
+	});
+
+	document.addEventListener('visibilitychange', function () {
+		if (document.visibilityState === 'visible') {
+			resumeAll();
+		}
+	});
+
+	// Только для диагностики (проверка через javascript_tool/консоль), поведения не меняет.
+	window.hgAudioUnlock = { contexts: capturedContexts, resumeAll: resumeAll };
+}());
+		</script>
+
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":23284160,"index.wasm":38034280},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":23284624,"index.wasm":38034280},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
