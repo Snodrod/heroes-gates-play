@@ -2,28 +2,42 @@
 <html lang="en">
 	<head>
 		<meta charset="utf-8">
-		<meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0">
+		<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+		<meta name="theme-color" content="#1d1a24">
 		<title>Врата Героев</title>
 		<style>
-html, body, #canvas {
+html, body {
+	width: 100%;
+	height: 100%;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	overflow: hidden;
+	overscroll-behavior: none;
+	background-color: #1d1a24;
+	touch-action: none;
+	-webkit-user-select: none;
+	-moz-user-select: none;
+	user-select: none;
+	-webkit-touch-callout: none;
+	-webkit-tap-highlight-color: transparent;
+}
+
+#canvas {
+	display: block;
+	width: 100%;
+	height: 100%;
 	margin: 0;
 	padding: 0;
 	border: 0;
 }
 
-body {
-	color: white;
-	background-color: black;
-	overflow: hidden;
-	touch-action: none;
-}
-
-#canvas {
-	display: block;
-}
-
 #canvas:focus {
 	outline: none;
+}
+
+body {
+	color: white;
 }
 
 #status, #status-splash, #status-progress {
@@ -89,6 +103,55 @@ body {
 	text-align: center;
 	z-index: 1;
 }
+
+/* Оверлей поворота экрана (Телеграм-шелл, agents/tests.md, TASK п.2) — игра ландшафтная,
+   в портрете накрываем канвас поверх, в ландшафте прячем. Живёт в шелле, не в Godot. */
+#hg-rotate-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 9999;
+	display: none;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 1.5rem;
+	background-color: #1d1a24;
+	color: #f2ece0;
+	font-family: 'Noto Sans', 'Droid Sans', 'Segoe UI', Arial, sans-serif;
+	text-align: center;
+	box-sizing: border-box;
+	padding: max(2rem, env(safe-area-inset-top)) max(2rem, env(safe-area-inset-right))
+		max(2rem, env(safe-area-inset-bottom)) max(2rem, env(safe-area-inset-left));
+}
+
+#hg-rotate-overlay.hg-visible {
+	display: flex;
+}
+
+#hg-rotate-overlay svg {
+	width: 88px;
+	height: 88px;
+	flex-shrink: 0;
+	animation: hg-rotate-hint 1.6s ease-in-out infinite;
+}
+
+@keyframes hg-rotate-hint {
+	0%, 100% { transform: rotate(0deg); }
+	50% { transform: rotate(90deg); }
+}
+
+#hg-rotate-overlay p {
+	margin: 0;
+	max-width: min(26rem, 100%);
+	overflow-wrap: anywhere;
+	font-size: 1.1rem;
+	line-height: 1.5;
+}
+
+#hg-rotate-overlay p.hg-lang-en {
+	opacity: 0.7;
+	font-size: 0.95rem;
+}
 		</style>
 		<link id="-gd-engine-icon" rel="icon" type="image/png" href="index.icon.png" />
 <link rel="apple-touch-icon" href="index.apple-touch-icon.png"/>
@@ -109,9 +172,134 @@ body {
 			<div id="status-notice"></div>
 		</div>
 
+		<div id="hg-rotate-overlay">
+			<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="#f2ece0" stroke-width="3">
+				<rect x="18" y="6" width="28" height="52" rx="5" />
+				<line x1="18" y1="46" x2="46" y2="46" />
+				<circle cx="32" cy="52" r="1.6" fill="#f2ece0" stroke="none" />
+			</svg>
+			<p lang="ru">Поверните телефон горизонтально</p>
+			<p class="hg-lang-en" lang="en">Rotate your phone to landscape</p>
+		</div>
+
+		<!-- Телеграм: SDK грузим ДО движка (TASK п.1). Вне Телеграма скрипт либо не
+		     загрузится (нет сети до telegram.org), либо window.Telegram.WebApp окажется
+		     с пустым initData — в обоих случаях следующий блок ничего телеграмного не делает
+		     и не бросает ошибок. -->
+		<script src="https://telegram.org/js/telegram-web-app.js"></script>
+		<script>
+(function () {
+	'use strict';
+
+	var overlay = document.getElementById('hg-rotate-overlay');
+	var tg = null;
+	try {
+		if (window.Telegram && window.Telegram.WebApp) {
+			tg = window.Telegram.WebApp;
+		}
+	} catch (e) {
+		tg = null;
+	}
+	var inTelegram = !!(tg && tg.initData);
+
+	// Единая точка данных для игры (game/ читает через JavaScriptBridge, см. agents/ui.md).
+	window.hgTelegram = {
+		inTelegram: inTelegram,
+		lang: 'en',
+		platform: 'web',
+		insets: { top: 0, bottom: 0, left: 0, right: 0 }
+	};
+
+	try {
+		if (inTelegram && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.language_code) {
+			window.hgTelegram.lang = String(tg.initDataUnsafe.user.language_code).slice(0, 2);
+		} else if (navigator.language) {
+			window.hgTelegram.lang = navigator.language.slice(0, 2);
+		}
+	} catch (e) { /* оставляем 'en' по умолчанию */ }
+
+	if (inTelegram) {
+		try { window.hgTelegram.platform = tg.platform || 'web'; } catch (e) {}
+	}
+
+	function hasVersion(v) {
+		try {
+			return !!(tg && typeof tg.isVersionAtLeast === 'function' && tg.isVersionAtLeast(v));
+		} catch (e) {
+			return false;
+		}
+	}
+
+	function updateInsets() {
+		if (!inTelegram) { return; }
+		try {
+			var a = tg.safeAreaInset || {};
+			var b = tg.contentSafeAreaInset || {};
+			window.hgTelegram.insets = {
+				top: Math.max(a.top || 0, b.top || 0),
+				bottom: Math.max(a.bottom || 0, b.bottom || 0),
+				left: Math.max(a.left || 0, b.left || 0),
+				right: Math.max(a.right || 0, b.right || 0)
+			};
+		} catch (e) { /* нет данных safe area — оставляем нули */ }
+	}
+
+	function updateOrientation() {
+		var portrait = window.innerHeight > window.innerWidth;
+		if (overlay) {
+			overlay.classList.toggle('hg-visible', portrait);
+		}
+		if (inTelegram && hasVersion('8.0')) {
+			try {
+				if (portrait) {
+					tg.unlockOrientation();
+				} else {
+					tg.lockOrientation();
+				}
+			} catch (e) { /* не все клиенты поддерживают блокировку ориентации */ }
+		}
+	}
+
+	if (inTelegram) {
+		try { tg.ready(); } catch (e) {}
+		try { tg.expand(); } catch (e) {}
+		if (hasVersion('8.0')) {
+			try {
+				if (!tg.isFullscreen) { tg.requestFullscreen(); }
+			} catch (e) {}
+		}
+		// Критично: вертикальный свайп не должен сворачивать игру посреди боя.
+		try { tg.disableVerticalSwipes(); } catch (e) {}
+		try { tg.setHeaderColor('#1d1a24'); } catch (e) {}
+		try { tg.setBackgroundColor('#1d1a24'); } catch (e) {}
+
+		updateInsets();
+		try {
+			tg.onEvent('safeAreaChanged', updateInsets);
+			tg.onEvent('contentSafeAreaChanged', updateInsets);
+			tg.onEvent('fullscreenChanged', updateInsets);
+			tg.onEvent('viewportChanged', updateInsets);
+		} catch (e) {}
+	}
+
+	updateOrientation();
+	window.addEventListener('resize', updateOrientation);
+	// Часть мобильных WebView не шлёт resize при повороте — досылаем сами, чтобы
+	// адаптивный канвас Godot (html/canvas_resize_policy=2) пересчитал размер. Дозвон
+	// делаем только отсюда (не из updateOrientation), иначе resize-слушатель уйдёт в
+	// бесконечную рекурсию сам с собой.
+	window.addEventListener('orientationchange', function () {
+		setTimeout(function () {
+			updateOrientation();
+			try { window.dispatchEvent(new Event('resize')); } catch (e) {}
+		}, 60);
+	});
+}());
+		</script>
+
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":23278172,"index.wasm":38034280},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":23284160,"index.wasm":38034280},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
