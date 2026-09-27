@@ -104,54 +104,6 @@ body {
 	z-index: 1;
 }
 
-/* Оверлей поворота экрана (Телеграм-шелл, agents/tests.md, TASK п.2) — игра ландшафтная,
-   в портрете накрываем канвас поверх, в ландшафте прячем. Живёт в шелле, не в Godot. */
-#hg-rotate-overlay {
-	position: fixed;
-	inset: 0;
-	z-index: 9999;
-	display: none;
-	flex-direction: column;
-	align-items: center;
-	justify-content: center;
-	gap: 1.5rem;
-	background-color: #1d1a24;
-	color: #f2ece0;
-	font-family: 'Noto Sans', 'Droid Sans', 'Segoe UI', Arial, sans-serif;
-	text-align: center;
-	box-sizing: border-box;
-	padding: max(2rem, env(safe-area-inset-top)) max(2rem, env(safe-area-inset-right))
-		max(2rem, env(safe-area-inset-bottom)) max(2rem, env(safe-area-inset-left));
-}
-
-#hg-rotate-overlay.hg-visible {
-	display: flex;
-}
-
-#hg-rotate-overlay svg {
-	width: 88px;
-	height: 88px;
-	flex-shrink: 0;
-	animation: hg-rotate-hint 1.6s ease-in-out infinite;
-}
-
-@keyframes hg-rotate-hint {
-	0%, 100% { transform: rotate(0deg); }
-	50% { transform: rotate(90deg); }
-}
-
-#hg-rotate-overlay p {
-	margin: 0;
-	max-width: min(26rem, 100%);
-	overflow-wrap: anywhere;
-	font-size: 1.1rem;
-	line-height: 1.5;
-}
-
-#hg-rotate-overlay p.hg-lang-en {
-	opacity: 0.7;
-	font-size: 0.95rem;
-}
 		</style>
 		<link id="-gd-engine-icon" rel="icon" type="image/png" href="index.icon.png" />
 <link rel="apple-touch-icon" href="index.apple-touch-icon.png"/>
@@ -172,16 +124,6 @@ body {
 			<div id="status-notice"></div>
 		</div>
 
-		<div id="hg-rotate-overlay">
-			<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="#f2ece0" stroke-width="3">
-				<rect x="18" y="6" width="28" height="52" rx="5" />
-				<line x1="18" y1="46" x2="46" y2="46" />
-				<circle cx="32" cy="52" r="1.6" fill="#f2ece0" stroke="none" />
-			</svg>
-			<p lang="ru">Поверните телефон горизонтально</p>
-			<p class="hg-lang-en" lang="en">Rotate your phone to landscape</p>
-		</div>
-
 		<!-- Телеграм: SDK грузим ДО движка (TASK п.1). Вне Телеграма скрипт либо не
 		     загрузится (нет сети до telegram.org), либо window.Telegram.WebApp окажется
 		     с пустым initData — в обоих случаях следующий блок ничего телеграмного не делает
@@ -191,7 +133,6 @@ body {
 (function () {
 	'use strict';
 
-	var overlay = document.getElementById('hg-rotate-overlay');
 	var tg = null;
 	try {
 		if (window.Telegram && window.Telegram.WebApp) {
@@ -244,22 +185,6 @@ body {
 		} catch (e) { /* нет данных safe area — оставляем нули */ }
 	}
 
-	function updateOrientation() {
-		var portrait = window.innerHeight > window.innerWidth;
-		if (overlay) {
-			overlay.classList.toggle('hg-visible', portrait);
-		}
-		if (inTelegram && hasVersion('8.0')) {
-			try {
-				if (portrait) {
-					tg.unlockOrientation();
-				} else {
-					tg.lockOrientation();
-				}
-			} catch (e) { /* не все клиенты поддерживают блокировку ориентации */ }
-		}
-	}
-
 	if (inTelegram) {
 		try { tg.ready(); } catch (e) {}
 		try { tg.expand(); } catch (e) {}
@@ -267,6 +192,10 @@ body {
 			try {
 				if (!tg.isFullscreen) { tg.requestFullscreen(); }
 			} catch (e) {}
+			// Портрет теперь поддерживаемый режим (docs/TOWN_AND_ARMY.md §5): ориентацию
+			// не закрепляем ни в портрете, ни в ландшафте; снимаем возможный замок,
+			// оставшийся от настроек бота или прошлой сессии. lockOrientation() не вызываем.
+			try { tg.unlockOrientation(); } catch (e) { /* не все клиенты поддерживают вызов */ }
 		}
 		// Критично: вертикальный свайп не должен сворачивать игру посреди боя.
 		try { tg.disableVerticalSwipes(); } catch (e) {}
@@ -282,15 +211,11 @@ body {
 		} catch (e) {}
 	}
 
-	updateOrientation();
-	window.addEventListener('resize', updateOrientation);
 	// Часть мобильных WebView не шлёт resize при повороте — досылаем сами, чтобы
-	// адаптивный канвас Godot (html/canvas_resize_policy=2) пересчитал размер. Дозвон
-	// делаем только отсюда (не из updateOrientation), иначе resize-слушатель уйдёт в
-	// бесконечную рекурсию сам с собой.
+	// адаптивный канвас Godot (html/canvas_resize_policy=2) пересчитал размер и в
+	// портрете, и в ландшафте (оверлей "поверните телефон" убран — TASK, §5 спеки).
 	window.addEventListener('orientationchange', function () {
 		setTimeout(function () {
-			updateOrientation();
 			try { window.dispatchEvent(new Event('resize')); } catch (e) {}
 		}, 60);
 	});
@@ -378,7 +303,7 @@ body {
 
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":23284624,"index.wasm":38034280},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":23361972,"index.wasm":38034280},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
