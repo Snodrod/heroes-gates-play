@@ -290,6 +290,28 @@ body {
 		var observedCanvas = document.getElementById('canvas');
 		if (observedCanvas) { canvasObserver.observe(observedCanvas); }
 	}
+	// BUG «кнопки не нажимаются, пока не повернёшь экран» (часть устройств): Telegram
+	// разворачивает WebView (expand/fullscreen) ещё до старта Godot, событие resize теряется,
+	// размер буфера канваса не совпадает с его CSS-размером — касания попадают мимо кнопок.
+	// Поворот чинил это новым resize. Сторож: если буфер канваса ≠ CSS × devicePixelRatio,
+	// досылаем resize, пока адаптивный канвас Godot не пересчитается.
+	function canvasOutOfSync() {
+		var c = document.getElementById('canvas');
+		if (!c || !c.clientWidth || !c.clientHeight) { return false; }
+		var dpr = window.devicePixelRatio || 1;
+		return Math.abs(c.width - Math.round(c.clientWidth * dpr)) > 2 ||
+			Math.abs(c.height - Math.round(c.clientHeight * dpr)) > 2;
+	}
+	function nudgeResize() {
+		try { window.dispatchEvent(new Event('resize')); } catch (e) {}
+		scheduleSnapshot();
+	}
+	window.hgCanvasResync = function () {
+		[0, 100, 400, 1000, 2500, 5000].forEach(function (delay) { setTimeout(nudgeResize, delay); });
+	};
+	setInterval(function () { if (canvasOutOfSync()) { nudgeResize(); } }, 700);
+	document.addEventListener('visibilitychange', function () { if (!document.hidden) { window.hgCanvasResync(); } });
+	window.addEventListener('focus', function () { window.hgCanvasResync(); });
 	window.addEventListener('orientationchange', function () {
 		// iOS metrics can settle after the initial orientation event.
 		[60, 250].forEach(function (delay) { setTimeout(telegramViewportChanged, delay); });
@@ -479,6 +501,7 @@ const engine = new Engine(GODOT_CONFIG);
 			},
 		}).then(() => {
 			setStatusMode('hidden');
+			try { if (window.hgCanvasResync) { window.hgCanvasResync(); } } catch (e) {}
 		}, displayFailureNotice);
 	}
 }());
