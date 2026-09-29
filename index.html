@@ -171,21 +171,73 @@ body {
 		}
 	}
 
-	function updateInsets() {
-		if (!inTelegram) { return; }
-		try {
-			var a = tg.safeAreaInset || {};
-			var b = tg.contentSafeAreaInset || {};
-			window.hgTelegram.insets = {
-				top: Math.max(a.top || 0, b.top || 0),
-				bottom: Math.max(a.bottom || 0, b.bottom || 0),
-				left: Math.max(a.left || 0, b.left || 0),
-				right: Math.max(a.right || 0, b.right || 0)
-			};
-		} catch (e) { /* нет данных safe area — оставляем нули */ }
+	function pixels(value) {
+		var n = Number(value);
+		return Number.isFinite(n) && n > 0 ? n : 0;
+	}
+
+	// Telegram-iOS places fullscreen controls below the status bar. The content
+	// inset excludes that bar: add system + content, rather than taking their max.
+	// CSS env is a fallback for the system notch only, not Telegram controls.
+	var safeProbe = document.createElement('div');
+	safeProbe.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none;' +
+		'padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) ' +
+		'env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);';
+	if (inTelegram) { document.body.appendChild(safeProbe); }
+	var lastSignature = '';
+	var snapshotPending = false;
+
+	function updateSnapshot() {
+		var canvas = document.getElementById('canvas');
+		var snapshot = window.hgTelegram;
+		snapshot.canvasCssWidth = canvas ? pixels(canvas.clientWidth) : 0;
+		snapshot.canvasCssHeight = canvas ? pixels(canvas.clientHeight) : 0;
+		snapshot.viewportHeight = inTelegram ? pixels(tg.viewportHeight) : pixels(window.innerHeight);
+		snapshot.viewportStableHeight = inTelegram ? pixels(tg.viewportStableHeight) : pixels(window.innerHeight);
+		snapshot.isFullscreen = !!(inTelegram && tg.isFullscreen);
+		if (inTelegram) {
+			try {
+				var system = tg.safeAreaInset || {};
+				var content = tg.contentSafeAreaInset || {};
+				var css = window.getComputedStyle(safeProbe);
+				var insets = {};
+				['top', 'right', 'bottom', 'left'].forEach(function (side) {
+					var envInset = pixels(parseFloat(css.getPropertyValue('padding-' + side)));
+					insets[side] = Math.max(pixels(system[side]), envInset) + pixels(content[side]);
+				});
+				snapshot.insets = insets;
+			} catch (e) { /* retain the previous valid insets */ }
+		}
+		// Godot knows its logical viewport; expose CSS dimensions, not framebuffer/DPR.
+		var signature = JSON.stringify(snapshot);
+		if (signature !== lastSignature) {
+			lastSignature = signature;
+			if (typeof window.hgPlatformInsets === 'function') {
+				try { window.hgPlatformInsets(); } catch (e) {}
+			}
+		}
+	}
+
+	function scheduleSnapshot() {
+		if (snapshotPending) { return; }
+		snapshotPending = true;
+		window.requestAnimationFrame(function () {
+			snapshotPending = false;
+			updateSnapshot();
+		});
+	}
+
+	function telegramViewportChanged() {
+		updateSnapshot();
+		// SDK changes may not raise WebView resize; notify Godot's window policy.
+		try { window.dispatchEvent(new Event('resize')); } catch (e) {}
+		scheduleSnapshot();
 	}
 
 	if (inTelegram) {
+		['safeAreaChanged', 'contentSafeAreaChanged', 'fullscreenChanged', 'viewportChanged'].forEach(function (eventName) {
+			try { tg.onEvent(eventName, telegramViewportChanged); } catch (e) {}
+		});
 		try { tg.ready(); } catch (e) {}
 		try { tg.expand(); } catch (e) {}
 		if (hasVersion('8.0')) {
@@ -202,23 +254,25 @@ body {
 		try { tg.setHeaderColor('#1d1a24'); } catch (e) {}
 		try { tg.setBackgroundColor('#1d1a24'); } catch (e) {}
 
-		updateInsets();
-		try {
-			tg.onEvent('safeAreaChanged', updateInsets);
-			tg.onEvent('contentSafeAreaChanged', updateInsets);
-			tg.onEvent('fullscreenChanged', updateInsets);
-			tg.onEvent('viewportChanged', updateInsets);
-		} catch (e) {}
 	}
 
 	// Часть мобильных WebView не шлёт resize при повороте — досылаем сами, чтобы
 	// адаптивный канвас Godot (html/canvas_resize_policy=2) пересчитал размер и в
 	// портрете, и в ландшафте (оверлей "поверните телефон" убран — TASK, §5 спеки).
+	window.addEventListener('resize', scheduleSnapshot);
+	if (window.visualViewport) {
+		window.visualViewport.addEventListener('resize', scheduleSnapshot);
+	}
+	if (typeof ResizeObserver === 'function') {
+		var canvasObserver = new ResizeObserver(scheduleSnapshot);
+		var observedCanvas = document.getElementById('canvas');
+		if (observedCanvas) { canvasObserver.observe(observedCanvas); }
+	}
 	window.addEventListener('orientationchange', function () {
-		setTimeout(function () {
-			try { window.dispatchEvent(new Event('resize')); } catch (e) {}
-		}, 60);
+		// iOS metrics can settle after the initial orientation event.
+		[60, 250].forEach(function (delay) { setTimeout(telegramViewportChanged, delay); });
 	});
+	updateSnapshot();
 }());
 		</script>
 
@@ -303,7 +357,7 @@ body {
 
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","mainPack":"index-ebc2a90.pck","experimentalVK":false,"fileSizes":{"index-ebc2a90.pck":28379212,"index.wasm":38034280},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":false,"fileSizes":{"index.wasm":38034280,"index-faa9662.pck":28390228},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4,"mainPack":"index-faa9662.pck"};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
