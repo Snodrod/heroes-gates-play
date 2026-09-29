@@ -306,10 +306,26 @@ body {
 		try { window.dispatchEvent(new Event('resize')); } catch (e) {}
 		scheduleSnapshot();
 	}
+	// Godot пересчитывает канвас, только если видит новый CSS-размер: на кадр сужаем
+	// канвас на 1px и возвращаем — два resize с разными размерами гарантируют пересчёт.
+	var kicking = false;
+	function kickCanvas() {
+		var c = document.getElementById('canvas');
+		if (!c || kicking) { return; }
+		kicking = true;
+		c.style.width = 'calc(100% - 1px)';
+		nudgeResize();
+		setTimeout(function () {
+			c.style.width = '';
+			nudgeResize();
+			kicking = false;
+		}, 120);
+	}
 	window.hgCanvasResync = function () {
-		[0, 100, 400, 1000, 2500, 5000].forEach(function (delay) { setTimeout(nudgeResize, delay); });
+		[0, 100].forEach(function (delay) { setTimeout(nudgeResize, delay); });
+		[400, 1500, 4000].forEach(function (delay) { setTimeout(function () { if (canvasOutOfSync()) { kickCanvas(); } }, delay); });
 	};
-	setInterval(function () { if (canvasOutOfSync()) { nudgeResize(); } }, 700);
+	setInterval(function () { if (canvasOutOfSync()) { kickCanvas(); } }, 700);
 	document.addEventListener('visibilitychange', function () { if (!document.hidden) { window.hgCanvasResync(); } });
 	window.addEventListener('focus', function () { window.hgCanvasResync(); });
 	window.addEventListener('orientationchange', function () {
