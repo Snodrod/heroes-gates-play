@@ -163,6 +163,28 @@ body {
 		try { window.hgTelegram.platform = tg.platform || 'web'; } catch (e) {}
 	}
 
+	// Вызов на бой по ссылке (sim/meta/hg_challenge.gd): start_param из Telegram
+	// (startapp=duel_...), запасной вход — ?duel=... или ?tgWebAppStartParam=... в адресе.
+	window.hgTelegram.startParam = '';
+	window.hgTelegram.userName = '';
+	try {
+		var usp = new URLSearchParams(window.location.search);
+		var sp = (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param) || usp.get('tgWebAppStartParam') || '';
+		if (!sp && usp.get('duel')) { sp = 'duel_' + usp.get('duel'); }
+		window.hgTelegram.startParam = String(sp).slice(0, 128);
+		var u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
+		if (u) { window.hgTelegram.userName = String(u.first_name || u.username || '').slice(0, 40); }
+	} catch (e) {}
+	// Отправить ссылку-вызов: окно «Поделиться» Telegram, вне Telegram — системное меню или буфер.
+	window.hgShareLink = function (url, text) {
+		var share = 'https://t.me/share/url?url=' + encodeURIComponent(url) + '&text=' + encodeURIComponent(text);
+		try { if (tg && tg.openTelegramLink && inTelegram) { tg.openTelegramLink(share); return 'telegram'; } } catch (e) {}
+		try { if (navigator.share) { navigator.share({ url: url, text: text }); return 'native'; } } catch (e) {}
+		try { if (navigator.clipboard) { navigator.clipboard.writeText(text + ' ' + url); return 'clipboard'; } } catch (e) {}
+		try { window.open(share, '_blank'); return 'window'; } catch (e) {}
+		return 'none';
+	};
+
 	function hasVersion(v) {
 		try {
 			return !!(tg && typeof tg.isVersionAtLeast === 'function' && tg.isVersionAtLeast(v));
@@ -357,7 +379,7 @@ body {
 
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":36008492,"index.wasm":38034280},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":36017880,"index.wasm":38034280},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
