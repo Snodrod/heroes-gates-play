@@ -1,14 +1,14 @@
 {
-  "source_commit": "bf2905b64bddbf31ea02499cc9b031e60e807e51",
-  "pck_file": "index-bf2905b.pck",
-  "launch_url": "https://snodrod.github.io/heroes-gates-play/?v=bf2905b",
-  "built_at_utc": "2026-09-30T12:57:36Z",
+  "source_commit": "6b1dfeff9ea3e73df0a7eddf783510ba142200df",
+  "pck_file": "index-6b1dfef.pck",
+  "launch_url": "https://snodrod.github.io/heroes-gates-play/?v=6b1dfef",
+  "built_at_utc": "2026-09-30T21:02:26Z",
   "godot_version": "4.5.1.stable",
-  "pck_sha256": "68874da0dc15882317b95fbf5e289a7a72e6ccd97e19ead308b062fedf3af470",
-  "pck_bytes": 50378132,
-  "city_file": "city-order-bf2905b.png",
+  "pck_sha256": "5e72ad59e4965014e37e513734c5433c9720be61c3274be2e12a3e132adbaeb1",
+  "pck_bytes": 54215304,
+  "city_file": "city-order-6b1dfef.png",
   "city_sha256": "b7c7332fe01b9a90f85f5a7f03736fa6a4a5f402eb215510aaba4b68089a615e",
   "city_bytes": 2781712,
-  "checks": 18762,
-  "suites": 47
+  "checks": 23171,
+  "suites": 52
 }

@@ -36,6 +36,34 @@ html, body {
 	outline: none;
 }
 
+#portrait-gate {
+	position: fixed;
+	inset: 0;
+	z-index: 40;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 20px;
+	padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right))
+		max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
+	box-sizing: border-box;
+	background: #121922;
+	color: #ffe8af;
+	text-align: center;
+	font: 22px Georgia, serif;
+}
+#portrait-gate[hidden] { display: none; }
+#portrait-gate:focus { outline: none; }
+#portrait-gate-icon {
+	width: 44px;
+	height: 74px;
+	border: 3px solid #cda754;
+	border-radius: 9px;
+	box-shadow: 0 0 24px #cda75433;
+}
+#portrait-gate p { margin: 0; max-width: 460px; }
+
 body {
 	color: white;
 }
@@ -47,12 +75,19 @@ body {
 }
 
 #status {
+	--hg-loader-safe-top: env(safe-area-inset-top, 0px);
+	--hg-loader-safe-right: env(safe-area-inset-right, 0px);
+	--hg-loader-safe-bottom: env(safe-area-inset-bottom, 0px);
+	--hg-loader-safe-left: env(safe-area-inset-left, 0px);
 	position: fixed;
 	inset: 0;
 	z-index: 20;
 	display: flex;
 	align-items: center;
 	justify-content: center;
+	padding: var(--hg-loader-safe-top) var(--hg-loader-safe-right)
+		var(--hg-loader-safe-bottom) var(--hg-loader-safe-left);
+	box-sizing: border-box;
 	background: #121922;
 }
 
@@ -70,15 +105,15 @@ body {
 	color: #ffe8af;
 	text-shadow: 0 2px 5px #101522, 0 0 16px #101522;
 	margin: 0;
-	left: max(16px, env(safe-area-inset-left));
-	right: max(16px, env(safe-area-inset-right));
+	left: max(16px, var(--hg-loader-safe-left));
+	right: max(16px, var(--hg-loader-safe-right));
 }
 #status-title {
-	top: calc(env(safe-area-inset-top) + 4vh);
+	top: calc(var(--hg-loader-safe-top) + 4vh);
 	font: bold clamp(24px, 5vw, 46px) Georgia, serif;
 }
 #status-caption {
-	bottom: calc(env(safe-area-inset-bottom) + 21%);
+	bottom: calc(var(--hg-loader-safe-bottom) + 21%);
 	font: 18px Georgia, serif;
 }
 @media (orientation: landscape) {
@@ -90,8 +125,10 @@ body {
 }
 
 #status-progress {
-	bottom: calc(env(safe-area-inset-bottom) + 15%);
-	width: min(70%, 500px);
+	bottom: calc(var(--hg-loader-safe-bottom) + 15%);
+	left: var(--hg-loader-safe-left);
+	right: var(--hg-loader-safe-right);
+	width: min(70%, 500px, calc(100% - var(--hg-loader-safe-left) - var(--hg-loader-safe-right) - 32px));
 	height: 16px;
 	accent-color: #cda754;
 	margin: 0 auto;
@@ -120,13 +157,18 @@ body {
 		<canvas id="canvas">
 			Your browser does not support the canvas tag.
 		</canvas>
+		<div id="portrait-gate" role="status" aria-live="polite" aria-atomic="true"
+			aria-hidden="true" tabindex="-1" hidden>
+			<span id="portrait-gate-icon" aria-hidden="true"></span>
+			<p id="portrait-gate-text">Turn your phone upright to continue.</p>
+		</div>
 
 		<noscript>
 			Your browser does not support JavaScript.
 		</noscript>
 
 		<div id="status">
-			<img id="status-splash" src="city-order-bf2905b.png" alt="">
+			<img id="status-splash" src="city-order-6b1dfef.png" alt="">
 			<h1 id="status-title">Врата Героев</h1>
 			<p id="status-caption">Открываем врата…</p>
 			<progress id="status-progress"></progress>
@@ -157,6 +199,7 @@ body {
 		inTelegram: inTelegram,
 		lang: 'en',
 		platform: 'web',
+		portraitBlocked: false,
 		insets: { top: 0, bottom: 0, left: 0, right: 0 }
 	};
 
@@ -207,6 +250,82 @@ body {
 		return Number.isFinite(n) && n > 0 ? n : 0;
 	}
 
+	// The game uses a portrait viewport on every device. Desktop letterboxing is
+	// done by Godot's KEEP aspect; keep the full CSS canvas and its DPR mapping.
+	var mobileClient = /^(ios|android)$/.test(window.hgTelegram.platform);
+	try {
+		mobileClient = mobileClient || !!(navigator.userAgentData && navigator.userAgentData.mobile) ||
+			/Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '') ||
+			(/Macintosh/i.test(navigator.userAgent || '') && navigator.maxTouchPoints > 1);
+	} catch (e) {}
+	var portraitGate = document.getElementById('portrait-gate');
+	var portraitText = document.getElementById('portrait-gate-text');
+	var portraitLanguage = window.hgTelegram.lang;
+	var previousFocus = null;
+	var orientationMode = '';
+
+	window.hgSetPortraitLanguage = function (lang) {
+		portraitLanguage = String(lang || 'en');
+		if (portraitText) {
+			portraitText.textContent = portraitLanguage.slice(0, 2) === 'ru' ?
+				'Поверните телефон вертикально, чтобы продолжить.' : 'Turn your phone upright to continue.';
+		}
+	};
+	window.hgSetPortraitLanguage(portraitLanguage);
+
+	function updatePortraitPolicy() {
+		var width = pixels(window.innerWidth);
+		var height = pixels(window.innerHeight);
+		var blocked = mobileClient && width > 0 && height > 0 && width > height;
+		var changed = window.hgTelegram.portraitBlocked !== blocked;
+		window.hgTelegram.portraitBlocked = blocked;
+		var canvas = document.getElementById('canvas');
+		if (portraitGate) {
+			portraitGate.hidden = !blocked;
+			portraitGate.setAttribute('aria-hidden', String(!blocked));
+		}
+		if (canvas) {
+			canvas.inert = blocked;
+			canvas.style.pointerEvents = blocked ? 'none' : '';
+			if (blocked) { canvas.setAttribute('aria-hidden', 'true'); }
+			else { canvas.removeAttribute('aria-hidden'); }
+		}
+		if (changed) {
+			if (blocked) {
+				previousFocus = document.activeElement;
+				if (portraitGate) { portraitGate.focus({ preventScroll: true }); }
+			} else if (previousFocus && typeof previousFocus.focus === 'function') {
+				previousFocus.focus({ preventScroll: true });
+				previousFocus = null;
+			}
+			// HGPlatform reads the flag on startup too, so a landscape launch before
+			// JavaScriptBridge exists is paused as soon as the game registers.
+			if (typeof window.hgPortraitBlocked === 'function') {
+				try { window.hgPortraitBlocked(blocked); } catch (e) {}
+			}
+			try { window.dispatchEvent(new CustomEvent('hg:portrait-blocked', { detail: blocked })); } catch (e) {}
+		}
+		var mode = mobileClient ? (blocked ? 'landscape' : 'portrait') : 'desktop';
+		if (mode === orientationMode) { return; }
+		orientationMode = mode;
+		if (!mobileClient) { return; }
+		if (inTelegram && hasVersion('8.0')) {
+			// Telegram locks the CURRENT orientation, not a requested direction:
+			// never trap a landscape launch. Lock after the player turns upright.
+			try {
+				if (blocked) { if (tg.isOrientationLocked) { tg.unlockOrientation(); } }
+				else { tg.lockOrientation(); }
+			} catch (e) {}
+		}
+		try {
+			var orientation = window.screen && window.screen.orientation;
+			if (orientation && typeof orientation.lock === 'function') {
+				var lockRequest = orientation.lock('portrait');
+				if (lockRequest && typeof lockRequest.catch === 'function') { lockRequest.catch(function () {}); }
+			}
+		} catch (e) { /* unsupported / fullscreen required: the rotate gate remains usable */ }
+	}
+
 	// Telegram-iOS places fullscreen controls below the status bar. The content
 	// inset excludes that bar: add system + content, rather than taking their max.
 	// CSS env is a fallback for the system notch only, not Telegram controls.
@@ -219,6 +338,7 @@ body {
 	var snapshotPending = false;
 
 	function updateSnapshot() {
+		updatePortraitPolicy();
 		var canvas = document.getElementById('canvas');
 		var snapshot = window.hgTelegram;
 		snapshot.canvasCssWidth = canvas ? pixels(canvas.clientWidth) : 0;
@@ -238,6 +358,15 @@ body {
 				});
 				snapshot.insets = insets;
 			} catch (e) { /* retain the previous valid insets */ }
+		}
+		// The HTML city loader precedes Godot: reserve the same Telegram controls
+		// immediately, then refresh them on SDK/viewport changes while it is visible.
+		// Ordinary browsers retain the CSS env fallback; the city image stays full-bleed.
+		var loader = document.getElementById('status');
+		if (inTelegram && loader) {
+			['top', 'right', 'bottom', 'left'].forEach(function (side) {
+				loader.style.setProperty('--hg-loader-safe-' + side, pixels(snapshot.insets[side]) + 'px');
+			});
 		}
 		// Godot knows its logical viewport; expose CSS dimensions, not framebuffer/DPR.
 		var signature = JSON.stringify(snapshot);
@@ -275,10 +404,6 @@ body {
 			try {
 				if (!tg.isFullscreen) { tg.requestFullscreen(); }
 			} catch (e) {}
-			// Портрет теперь поддерживаемый режим (docs/TOWN_AND_ARMY.md §5): ориентацию
-			// не закрепляем ни в портрете, ни в ландшафте; снимаем возможный замок,
-			// оставшийся от настроек бота или прошлой сессии. lockOrientation() не вызываем.
-			try { tg.unlockOrientation(); } catch (e) { /* не все клиенты поддерживают вызов */ }
 		}
 		// Критично: вертикальный свайп не должен сворачивать игру посреди боя.
 		try { tg.disableVerticalSwipes(); } catch (e) {}
@@ -287,9 +412,8 @@ body {
 
 	}
 
-	// Часть мобильных WebView не шлёт resize при повороте — досылаем сами, чтобы
-	// адаптивный канвас Godot (html/canvas_resize_policy=2) пересчитал размер и в
-	// портрете, и в ландшафте (оверлей "поверните телефон" убран — TASK, §5 спеки).
+	// Some WebViews omit resize after rotation: refresh both portrait gate and
+	// safe-area/CSS metrics while the phone settles, then resume the same game.
 	window.addEventListener('resize', scheduleSnapshot);
 	if (window.visualViewport) {
 		window.visualViewport.addEventListener('resize', scheduleSnapshot);
@@ -432,7 +556,7 @@ document.title = loadingRussian ? 'Врата Героев' : 'Gates of Heroes';
 document.getElementById('status-title').textContent = document.title;
 document.getElementById('status-caption').textContent = loadingRussian ? 'Открываем врата…' : 'Opening the gates…';
 document.getElementById('status-progress').setAttribute('aria-label', loadingRussian ? 'Загрузка игры' : 'Loading game');
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":false,"fileSizes":{"index.wasm":38034280,"index-bf2905b.pck":50378132},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4,"mainPack":"index-bf2905b.pck"};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":false,"fileSizes":{"index.wasm":38034280,"index-6b1dfef.pck":54215304},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4,"mainPack":"index-6b1dfef.pck"};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
