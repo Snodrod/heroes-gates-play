@@ -2,7 +2,7 @@
 <html lang="en">
 	<head>
 		<meta charset="utf-8">
-		<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 		<meta name="theme-color" content="#1d1a24">
 		<title>Врата Героев</title>
 		<style>
@@ -15,7 +15,7 @@ html, body {
 	overflow: hidden;
 	overscroll-behavior: none;
 	background-color: #1d1a24;
-	touch-action: none;
+	touch-action: pinch-zoom;
 	-webkit-user-select: none;
 	-moz-user-select: none;
 	user-select: none;
@@ -168,7 +168,7 @@ body {
 		</noscript>
 
 		<div id="status">
-			<img id="status-splash" src="city-order-6b1dfef.png" alt="">
+			<img id="status-splash" src="city-order-a22889d.png" alt="">
 			<h1 id="status-title">Врата Героев</h1>
 			<p id="status-caption">Открываем врата…</p>
 			<progress id="status-progress"></progress>
@@ -423,42 +423,34 @@ body {
 		var observedCanvas = document.getElementById('canvas');
 		if (observedCanvas) { canvasObserver.observe(observedCanvas); }
 	}
-	// BUG «кнопки не нажимаются, пока не повернёшь экран» (часть устройств): Telegram
-	// разворачивает WebView (expand/fullscreen) ещё до старта Godot, событие resize теряется,
-	// размер буфера канваса не совпадает с его CSS-размером — касания попадают мимо кнопок.
-	// Поворот чинил это новым resize. Сторож: если буфер канваса ≠ CSS × devicePixelRatio,
-	// досылаем resize, пока адаптивный канвас Godot не пересчитается.
+	// Recover a resize missed during Telegram expand/fullscreen. Godot 4.5.1's
+	// full-window policy uses floor(innerSize * DPR), then floors the CSS size
+	// separately. clientSize * DPR differs at fractional page zoom, so comparing
+	// against it can repeatedly "repair" an already-correct engine framebuffer.
+	// Browser pinch only changes visualViewport: retain the layout viewport canvas
+	// and let Godot map client coordinates through its actual bounding rectangle.
 	function canvasOutOfSync() {
 		var c = document.getElementById('canvas');
-		if (!c || !c.clientWidth || !c.clientHeight) { return false; }
-		var dpr = window.devicePixelRatio || 1;
-		return Math.abs(c.width - Math.round(c.clientWidth * dpr)) > 2 ||
-			Math.abs(c.height - Math.round(c.clientHeight * dpr)) > 2;
+		var width = pixels(window.innerWidth);
+		var height = pixels(window.innerHeight);
+		if (!c || !width || !height) { return false; }
+		var dpr = pixels(window.devicePixelRatio) || 1;
+		var bufferWidth = Math.floor(width * dpr);
+		var bufferHeight = Math.floor(height * dpr);
+		return c.width !== bufferWidth || c.height !== bufferHeight ||
+			c.clientWidth !== Math.floor(bufferWidth / dpr) || c.clientHeight !== Math.floor(bufferHeight / dpr);
 	}
 	function nudgeResize() {
 		try { window.dispatchEvent(new Event('resize')); } catch (e) {}
 		scheduleSnapshot();
 	}
-	// Godot пересчитывает канвас, только если видит новый CSS-размер: на кадр сужаем
-	// канвас на 1px и возвращаем — два resize с разными размерами гарантируют пересчёт.
-	var kicking = false;
-	function kickCanvas() {
-		var c = document.getElementById('canvas');
-		if (!c || kicking) { return; }
-		kicking = true;
-		c.style.width = 'calc(100% - 1px)';
-		nudgeResize();
-		setTimeout(function () {
-			c.style.width = '';
-			nudgeResize();
-			kicking = false;
-		}, 120);
-	}
+	// The engine checks DPR, CSS size AND framebuffer size itself. A notification
+	// is enough; changing CSS here creates a second layout while zoom is settling.
 	window.hgCanvasResync = function () {
 		[0, 100].forEach(function (delay) { setTimeout(nudgeResize, delay); });
-		[400, 1500, 4000].forEach(function (delay) { setTimeout(function () { if (canvasOutOfSync()) { kickCanvas(); } }, delay); });
+		[400, 1500, 4000].forEach(function (delay) { setTimeout(function () { if (canvasOutOfSync()) { nudgeResize(); } }, delay); });
 	};
-	setInterval(function () { if (canvasOutOfSync()) { kickCanvas(); } }, 700);
+	setInterval(function () { if (canvasOutOfSync()) { nudgeResize(); } }, 700);
 	document.addEventListener('visibilitychange', function () { if (!document.hidden) { window.hgCanvasResync(); } });
 	window.addEventListener('focus', function () { window.hgCanvasResync(); });
 	window.addEventListener('orientationchange', function () {
@@ -556,7 +548,7 @@ document.title = loadingRussian ? 'Врата Героев' : 'Gates of Heroes';
 document.getElementById('status-title').textContent = document.title;
 document.getElementById('status-caption').textContent = loadingRussian ? 'Открываем врата…' : 'Opening the gates…';
 document.getElementById('status-progress').setAttribute('aria-label', loadingRussian ? 'Загрузка игры' : 'Loading game');
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":false,"fileSizes":{"index.wasm":38034280,"index-6b1dfef.pck":54215304},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4,"mainPack":"index-6b1dfef.pck"};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":false,"fileSizes":{"index.wasm":38034280,"index-a22889d.pck":90232528},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4,"mainPack":"index-a22889d.pck"};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
