@@ -168,7 +168,7 @@ body {
 		</noscript>
 
 		<div id="status">
-			<img id="status-splash" src="city-order-ea06fa3.png" alt="">
+			<img id="status-splash" src="city-order-55e1ec0.png" alt="">
 			<h1 id="status-title">Врата Героев</h1>
 			<p id="status-caption">Открываем врата…</p>
 			<progress id="status-progress"></progress>
@@ -227,6 +227,32 @@ body {
 		var u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
 		if (u) { window.hgTelegram.userName = String(u.first_name || u.username || '').slice(0, 40); }
 	} catch (e) {}
+	// Оплата (monetization.md §7). initData — сырая подписанная строка для POST /auth/telegram
+	// (сервер проверяет подпись; initDataUnsafe для входа не годится), вне Telegram — ''.
+	// hgOpenInvoice(url) открывает окно счёта Telegram Stars и кладёт итог окна в
+	// window.hgLastInvoice = {url, status}: status '' пока окно открыто, затем paid /
+	// cancelled / failed / pending от SDK. game/platform/hg_platform.gd опрашивает его раз в
+	// 250 мс; «paid» — только сигнал, права подтверждает сервер (GET /billing/invoices/:id).
+	window.hgTelegram.initData = '';
+	try { if (inTelegram) { window.hgTelegram.initData = String(tg.initData || ''); } } catch (e) {}
+	window.hgLastInvoice = null;
+	window.hgOpenInvoice = function (url) {
+		var link = String(url || '');
+		window.hgLastInvoice = { url: link, status: '' };
+		try {
+			if (!inTelegram || typeof tg.openInvoice !== 'function' || !link) {
+				window.hgLastInvoice.status = 'failed';
+				return 'none';
+			}
+			tg.openInvoice(link, function (status) {
+				window.hgLastInvoice = { url: link, status: String(status || 'failed') };
+			});
+			return 'telegram';
+		} catch (e) {
+			window.hgLastInvoice = { url: link, status: 'failed' };
+			return 'error';
+		}
+	};
 	// Отправить ссылку-вызов: окно «Поделиться» Telegram, вне Telegram — системное меню или буфер.
 	window.hgShareLink = function (url, text) {
 		var share = 'https://t.me/share/url?url=' + encodeURIComponent(url) + '&text=' + encodeURIComponent(text);
@@ -457,6 +483,201 @@ body {
 		// iOS metrics can settle after the initial orientation event.
 		[60, 250].forEach(function (delay) { setTimeout(telegramViewportChanged, delay); });
 	});
+	// Native text field (game/platform/hg_native_text.gd). Godot's own web IME takes text
+	// only on compositionend from a hidden div, and with experimental_virtual_keyboard off a
+	// phone in Telegram may show no keyboard at all. On a touch device the game arms each
+	// visible LineEdit with its rect (framebuffer px of the canvas); a tap inside an armed rect
+	// shows a real <input> over the field IN the gesture (iOS opens the keyboard only from a
+	// user gesture), with native keyboard, IME and paste. Enter or blur hands the value back
+	// to the game through the field's sink: sink(kind, value), kind 'input' | 'submit' | 'blur'.
+	var nativeFields = {};
+	var nativeSinks = {};
+	var nativeCurrent = null;
+	var nativeBox = null;
+	var nativeKeep = false;
+
+	function nativeTouch() {
+		try {
+			return !!(mobileClient || navigator.maxTouchPoints > 0 || ('ontouchstart' in window));
+		} catch (e) {
+			return false;
+		}
+	}
+
+	function nativeCanvasRect() {
+		var canvas = document.getElementById('canvas');
+		if (!canvas) { return null; }
+		var r = canvas.getBoundingClientRect ? canvas.getBoundingClientRect() :
+			{ left: 0, top: 0, width: canvas.clientWidth, height: canvas.clientHeight };
+		var k = canvas.width > 0 ? pixels(r.width) / canvas.width : 1;
+		return { left: Number(r.left) || 0, top: Number(r.top) || 0, k: k || 1 };
+	}
+
+	// CSS rect of a field spec {x, y, w, h, font} given in framebuffer px.
+	function nativeCss(spec) {
+		var c = nativeCanvasRect() || { left: 0, top: 0, k: 1 };
+		return {
+			left: c.left + Number(spec.x || 0) * c.k,
+			top: c.top + Number(spec.y || 0) * c.k,
+			width: Number(spec.w || 0) * c.k,
+			height: Number(spec.h || 0) * c.k,
+			// 16 CSS px at least: iOS zooms the page into a smaller field.
+			font: Math.max(16, Number(spec.font || 0) * c.k)
+		};
+	}
+
+	function nativePlace(spec) {
+		if (!nativeBox) { return; }
+		var css = nativeCss(spec);
+		nativeBox.style.left = css.left + 'px';
+		nativeBox.style.top = css.top + 'px';
+		nativeBox.style.width = css.width + 'px';
+		nativeBox.style.height = css.height + 'px';
+		nativeBox.style.fontSize = css.font + 'px';
+	}
+
+	function nativeSend(id, kind, value) {
+		window.hgNativeInputLast = { id: id, kind: kind, value: value };
+		var sink = nativeSinks[id];
+		if (typeof sink === 'function') {
+			try { sink(kind, value); } catch (e) {}
+		}
+	}
+
+	function nativeValue(spec) {
+		var value = String(nativeBox ? nativeBox.value : '').replace(/[\r\n]+/g, ' ');
+		var max = Number(spec.maxLength || 0);
+		return max > 0 ? Array.from(value).slice(0, max).join('') : value;
+	}
+
+	function nativeCommit(kind) {
+		var spec = nativeCurrent;
+		if (!spec || nativeKeep) { return; }
+		nativeCurrent = null;
+		var value = nativeValue(spec);
+		nativeBox.style.display = 'none';
+		if (kind === 'submit') {
+			try { nativeBox.blur(); } catch (e) {}
+			var canvas = document.getElementById('canvas');
+			try { if (canvas && canvas.focus) { canvas.focus({ preventScroll: true }); } } catch (e) {}
+		}
+		nativeSend(spec.id, kind, value);
+	}
+
+	function nativeEnsureBox() {
+		if (nativeBox) { return nativeBox; }
+		var box = document.createElement('input');
+		box.id = 'hg-native-input';
+		box.type = 'text';
+		box.setAttribute('autocomplete', 'off');
+		box.setAttribute('autocorrect', 'off');
+		box.setAttribute('autocapitalize', 'words');
+		box.setAttribute('spellcheck', 'false');
+		box.setAttribute('enterkeyhint', 'done');
+		box.setAttribute('inputmode', 'text');
+		box.style.cssText = 'position:fixed;z-index:30;display:none;box-sizing:border-box;margin:0;' +
+			'padding:0 12px;border:2px solid #cda754;border-radius:8px;outline:none;' +
+			'background:#f5ebd6;color:#2a2018;font-family:Arial,sans-serif;' +
+			'-webkit-user-select:text;user-select:text;-webkit-touch-callout:default;touch-action:manipulation;';
+		box.addEventListener('input', function () {
+			if (nativeCurrent) { nativeSend(nativeCurrent.id, 'input', nativeValue(nativeCurrent)); }
+		});
+		box.addEventListener('keydown', function (event) {
+			if (event.key === 'Enter' || event.keyCode === 13) {
+				if (event.preventDefault) { event.preventDefault(); }
+				nativeCommit('submit');
+			}
+		});
+		box.addEventListener('blur', function () { nativeCommit('blur'); });
+		document.body.appendChild(box);
+		nativeBox = box;
+		return box;
+	}
+
+	function nativeShow(spec) {
+		if (window.hgTelegram.portraitBlocked) { return false; }
+		var box = nativeEnsureBox();
+		if (nativeCurrent && nativeCurrent.id !== spec.id) { nativeCommit('blur'); }
+		nativeCurrent = spec;
+		box.value = String(spec.value || '');
+		var max = Number(spec.maxLength || 0);
+		if (max > 0) { box.maxLength = max; } else { box.removeAttribute('maxlength'); }
+		box.placeholder = String(spec.placeholder || '');
+		nativePlace(spec);
+		box.style.display = 'block';
+		// The focus change while the field appears must not count as leaving it.
+		nativeKeep = true;
+		try { box.focus({ preventScroll: true }); } catch (e) { try { box.focus(); } catch (e2) {} }
+		nativeKeep = false;
+		try { box.setSelectionRange(box.value.length, box.value.length); } catch (e) {}
+		return true;
+	}
+
+	function nativeInside(spec, p) {
+		var css = nativeCss(spec);
+		return p.x >= css.left && p.x <= css.left + css.width && p.y >= css.top && p.y <= css.top + css.height;
+	}
+
+	function nativePoint(event) {
+		var t = event.changedTouches && event.changedTouches[0];
+		return t ? { x: t.clientX, y: t.clientY } : { x: event.clientX, y: event.clientY };
+	}
+
+	// The tap that opens the field: touchend / pointerup (not a mouse), still in the gesture.
+	function nativeTap(event) {
+		if (event.pointerType === 'mouse' || nativeCurrent || (nativeBox && event.target === nativeBox)) { return; }
+		var p = nativePoint(event);
+		var ids = Object.keys(nativeFields);
+		for (var i = 0; i < ids.length; i++) {
+			if (nativeInside(nativeFields[ids[i]], p)) { nativeShow(nativeFields[ids[i]]); return; }
+		}
+	}
+	// A touch on the game outside the open field closes it (iOS does not always blur an input
+	// when the tap lands on a canvas).
+	function nativeOutside(event) {
+		if (!nativeCurrent || (nativeBox && event.target === nativeBox)) { return; }
+		if (!nativeInside(nativeCurrent, nativePoint(event))) { nativeCommit('blur'); }
+	}
+	window.addEventListener('touchend', nativeTap, true);
+	window.addEventListener('pointerup', nativeTap, true);
+	window.addEventListener('pointerdown', nativeOutside, true);
+
+	window.hgNativeInput = {
+		touch: nativeTouch,
+		register: function (id, sink) { nativeSinks[String(id)] = sink; },
+		arm: function (spec) {
+			if (!spec || !spec.id) { return; }
+			nativeFields[String(spec.id)] = spec;
+			if (nativeCurrent && nativeCurrent.id === spec.id) {
+				nativeCurrent = spec;
+				nativePlace(spec);
+			}
+		},
+		// The field is hidden: no tap opens it (an open one closes with its value).
+		disarm: function (id) {
+			id = String(id);
+			if (nativeCurrent && nativeCurrent.id === id) { nativeCommit('blur'); }
+			delete nativeFields[id];
+		},
+		// The field is gone for good.
+		forget: function (id) {
+			window.hgNativeInput.disarm(id);
+			delete nativeSinks[String(id)];
+		},
+		// Without a gesture (the game saw the tap first): Android shows the keyboard within
+		// the tap's user activation; iOS may not, which is why the shell arms fields.
+		open: function (spec) {
+			if (!spec || !spec.id) { return false; }
+			nativeFields[String(spec.id)] = spec;
+			if (nativeCurrent && nativeCurrent.id === spec.id) { nativePlace(spec); return true; }
+			return nativeShow(spec);
+		},
+		close: function () { nativeCommit('blur'); },
+		state: function () {
+			return nativeCurrent ? { id: nativeCurrent.id, value: nativeValue(nativeCurrent), open: true } : null;
+		}
+	};
+
 	updateSnapshot();
 }());
 		</script>
@@ -548,7 +769,7 @@ document.title = loadingRussian ? 'Врата Героев' : 'Gates of Heroes';
 document.getElementById('status-title').textContent = document.title;
 document.getElementById('status-caption').textContent = loadingRussian ? 'Открываем врата…' : 'Opening the gates…';
 document.getElementById('status-progress').setAttribute('aria-label', loadingRussian ? 'Загрузка игры' : 'Loading game');
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":false,"fileSizes":{"index.wasm":38034280,"index-ea06fa3.pck":78328892},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4,"mainPack":"index-ea06fa3.pck"};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":false,"fileSizes":{"index.wasm":38034280,"index-55e1ec0.pck":79993760},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4,"mainPack":"index-55e1ec0.pck"};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
