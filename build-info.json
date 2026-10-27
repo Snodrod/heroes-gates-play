@@ -1,14 +1,38 @@
 {
-  "source_commit": "e1110e07e0e8b20f793e4adc69b1de062ab671f0",
-  "pck_file": "index-e1110e0.pck",
-  "launch_url": "https://snodrod.github.io/heroes-gates-play/?v=e1110e0",
-  "built_at_utc": "2026-10-08T15:59:06Z",
+  "source_commit": "f9d8f2ba9c119cdff9935623d9b2e7574667d869",
+  "pck_file": "index-f9d8f2b.pck",
+  "launch_url": "https://snodrod.github.io/heroes-gates-play/?v=f9d8f2b",
+  "built_at_utc": "2026-10-27T11:25:45Z",
   "godot_version": "4.5.1.stable",
-  "pck_sha256": "c0072a56292e279f8c23d2efca51ce25e38a8c56e20cee7a502c1004fcd4564c",
-  "pck_bytes": 75998428,
-  "city_file": "city-order-e1110e0.png",
-  "city_sha256": "b7c7332fe01b9a90f85f5a7f03736fa6a4a5f402eb215510aaba4b68089a615e",
-  "city_bytes": 2781712,
-  "checks": 107561,
-  "suites": 103
+  "template": "own: tools/build/web_template.ps1 (emscripten 4.0.11, text_server_adv)",
+  "pck_sha256": "59824230b15327543a2e85c4cdfcd6d841758da5365cc3c486d9b14dd5394d9f",
+  "pck_bytes": 23559956,
+  "checks": 141560,
+  "suites": 130,
+  "files": {
+    "index-f9d8f2b.pck": {
+      "bytes": 23559956,
+      "sha256": "59824230b15327543a2e85c4cdfcd6d841758da5365cc3c486d9b14dd5394d9f"
+    },
+    "index-f9d8f2b.wasm": {
+      "bytes": 24746944,
+      "sha256": "7c93c240f044f991504fb986548c75a6b93b136ecfca0761c3cef0660d7eb246"
+    },
+    "index-f9d8f2b.js": {
+      "bytes": 274567,
+      "sha256": "f148ca731d82439bf293682decb096576d720a73226b2cb9e655d77634985b5d"
+    },
+    "index-f9d8f2b.audio.worklet.js": {
+      "bytes": 7298,
+      "sha256": "5b476a9c9ce642c0ee4256436d1bc31d9c38f868aca0f9a8e2a57c18d2dec2a3"
+    },
+    "index-f9d8f2b.audio.position.worklet.js": {
+      "bytes": 2973,
+      "sha256": "be33985bc7160d6bf9646f259cd86b259cd67b02ccb297ee5c44f8ac84327bc8"
+    },
+    "city-order-f9d8f2b.webp": {
+      "bytes": 321108,
+      "sha256": "826b86b738245682e6bab76c065f2bf23bcdc033261bf63ca069a5eac85c7b52"
+    }
+  }
 }
